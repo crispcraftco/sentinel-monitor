@@ -76,7 +76,12 @@ The sentinel cron job itself runs on a model. If that provider goes down, the se
 
 Providers with `key_source: "gateway"` cannot be tested via direct curl. Use sentinel's own execution as a heartbeat — if it ran, at least one gateway provider is alive.
 
-See `references/pitfalls.md` for detailed analysis.
+See `references/pitfalls.md` for detailed analysis of provider testing issues.
+See `references/cascading-config-bug.md` for the source-vs-output config wipe pattern and fix.
+
+## Cron Job Subagent Failures
+
+Cron jobs frequently report `RuntimeError: 400 Bad Request` on the cron output log — this is a **Hermes subagent infrastructure issue**, NOT a problem with the sentinel script or provider configuration. The `sentinel.py` script runs perfectly when executed directly. The 400 error happens when the cron subagent tries to initialize. If the script works standalone but the cron job fails, the issue is in Hermes cron infrastructure.
 
 ## Uninstall
 ```bash
