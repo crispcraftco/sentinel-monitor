@@ -1,8 +1,65 @@
 {
   "_comment": "Sentinel Provider Monitor — Example configuration. Copy to ~/.hermes/sentinel-config.json and edit with your real providers.",
-  "candidates": [],
-  "provider_endpoints": {},
-  "job_registry": {},
+  "candidates": [
+    {
+      "provider": "ModelArk",
+      "model": "gpt-oss-120b-250805",
+      "cost": "paid-subscription",
+      "quality": "tier-1",
+      "job_types": ["research", "builder", "design", "content"]
+    },
+    {
+      "provider": "ModelArk",
+      "model": "seed-2-0-pro-260328",
+      "cost": "paid-subscription",
+      "quality": "tier-1",
+      "job_types": ["research", "builder", "design", "content"]
+    },
+    {
+      "provider": "ModelArk",
+      "model": "seed-2-0-lite-260228",
+      "cost": "paid-subscription",
+      "quality": "tier-2",
+      "job_types": ["marketing", "finance"]
+    },
+    {
+      "provider": "ModelArk",
+      "model": "seed-2-0-mini-260215",
+      "cost": "paid-subscription",
+      "quality": "tier-3",
+      "job_types": ["system", "growth"]
+    }
+  ],
+  "provider_endpoints": {
+    "ModelArk": {
+      "url": "https://ark.ap-southeast.bytepluses.com/api/coding/v3/chat/completions",
+      "key_source": "config"
+    },
+    "openrouter": {
+      "url": "https://openrouter.ai/api/v1/chat/completions",
+      "key_source": "config"
+    },
+    "nous": {
+      "url": "https://inference-api.nousresearch.com/v1/chat/completions",
+      "key_source": "gateway"
+    }
+  },
+  "job_registry": {
+    "0303e23b77ff": { "name": "Daily Vault Ingest + LINT", "type": "builder" },
+    "769d44c912f2": { "name": "Space Daily Report", "type": "research" },
+    "bf461e22c666": { "name": "Space 6-Hour Log", "type": "system" },
+    "1b428cd5e75c": { "name": "Space Wake Check", "type": "system" },
+    "fe872add1bd5": { "name": "Daily Business Report", "type": "marketing" },
+    "e05cee687b9b": { "name": "Monthly Business Report", "type": "research" },
+    "30652ac5f57e": { "name": "Marcus — Product Quality Review", "type": "research" },
+    "1bcd769acd9c": { "name": "Luna — Design & Mockup Agent", "type": "design" },
+    "2b11fc3e1872": { "name": "Viktor — Marketing & Publishing Agent", "type": "marketing" },
+    "1c2307b729ff": { "name": "Sofia — Product Builder Agent", "type": "builder" },
+    "260ae0d82e34": { "name": "Olivia — Content Writer Agent", "type": "content" },
+    "55db52a044f7": { "name": "Jax — Growth & Community Agent", "type": "growth" },
+    "59296cfbfc4a": { "name": "Kenji — Finance & Compliance Agent", "type": "finance" },
+    "3e2227e8f924": { "name": "Sentinel Monitor", "type": "system" }
+  },
   "quality_requirements": {
     "research": "tier-1",
     "builder": "tier-1",
