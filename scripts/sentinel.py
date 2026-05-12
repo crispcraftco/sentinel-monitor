@@ -48,23 +48,86 @@ def load_config(path=None):
         return defaults
 
 def load_hermes_config():
-    """Read ~/.hermes/config.yaml for custom_provider API keys."""
+    """Read ~/.hermes/config.yaml for custom_provider API keys.
+    Tries multiple locations for resilience across environments."""
     cfg_path = os.path.join(HOME, ".hermes", "config.yaml")
     try:
         import yaml
         with open(cfg_path) as f:
             return yaml.safe_load(f) or {}
-    except ImportError:
+    except (ImportError, FileNotFoundError, PermissionError):
         return {}
 
+
+# Known env var names for provider API keys
+KEY_ENV_VARS = {
+    "ModelArk": ["MODELARK_API_KEY", "MODELPARK_API_KEY", "BYTEPLUS_API_KEY"],
+    "openrouter": ["OPENROUTER_API_KEY", "OR_API_KEY"],
+    "nous": ["NOUS_API_KEY", "NOUS_INFERENCE_KEY"],
+}
+
+# Known file paths for provider API keys
+KEY_FILES = {
+    "ModelArk": [os.path.join(HOME, ".hermes", ".modelark_key"),
+                 os.path.join(HOME, ".hermes", ".modelark_api_key")],
+    "openrouter": [os.path.join(HOME, ".hermes", ".openrouter_key")],
+}
+
+
 def get_api_key(name, ks, hc):
-    """Get a provider API key from hermes custom_providers list."""
+    """Get a provider API key from multiple sources.
+    Falls back from hermes config -> env vars -> key files.
+    Returns None if key is not found anywhere."""
     if ks != "config":
         return None
+
+    # 1. Try hermes config.yaml custom_providers
     for cp in hc.get("custom_providers", []):
         if cp.get("name") == name:
-            return cp.get("api_key")
+            key = cp.get("api_key")
+            if key:
+                return key
+
+    # 2. Try environment variables (known provider key env var names)
+    env_names = []
+    for n in [name, name.lower(), name.replace("-", "_").replace("_", "")]:
+        env_names += [f"{n.upper()}_API_KEY", f"{n.upper()}_KEY"]
+    # Also try specific known names
+    env_names += ["MODELARK_API_KEY", "OPENROUTER_API_KEY", "NOUS_API_KEY"]
+    for env_name in env_names:
+        key = os.environ.get(env_name)
+        if key:
+            return key
+
+    # 3. Try key files in ~/.hermes/
+    dotfile_paths = [
+        os.path.join(HOME, ".hermes", f".{name.lower()}_key"),
+        os.path.join(HOME, ".hermes", f".{name.lower()}_api_key"),
+        os.path.join(HOME, ".hermes", f".{name.lower()}.key"),
+    ]
+    for fpath in dotfile_paths:
+        try:
+            with open(fpath) as f:
+                key = f.read().strip()
+                if key:
+                    return key
+        except (FileNotFoundError, PermissionError):
+            pass
+
     return None
+
+
+def check_key_status(provider, ks, hc):
+    """Check if a provider has a usable key. Returns (has_key, reason)."""
+    if ks == "none":
+        return True, "no key needed"
+    if ks == "gateway":
+        return True, "managed by gateway"
+
+    key = get_api_key(provider, ks, hc)
+    if key:
+        return True, f"key found (length {len(key)})"
+    return False, "no key available in config.yaml, env vars, or key files"
 
 # ---------------------------------------------------------------------------
 # Testing
@@ -114,6 +177,14 @@ def step1_test(candidates, endpoints, hc, cfg_path):
         if ks=="gateway" or not url:
             print(f"  ⚙ {p}/{m} -- gateway/no-url (skipped)")
             continue
+
+        # Check if key is available before spending time testing
+        has_key, key_reason = check_key_status(p, ks, hc)
+        if not has_key:
+            print(f"  ⚠ {p}/{m} -- SKIP: {key_reason}")
+            fail.append({"provider":p,"model":m,"status":"missing_key","http_code":0})
+            continue
+
         key = get_api_key(p, ks, hc)
         st, ms, code = test_one(p, m, url, key)
         if st == "ok":

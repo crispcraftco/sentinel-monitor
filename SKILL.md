@@ -39,6 +39,19 @@ cp ~/.hermes/skills/sentinel-monitor/templates/sentinel-config.example.json ~/.h
 # Edit with your real providers
 ```
 
+### Mandatory: End-to-End Verification Before Claiming Complete
+
+Do NOT say "it's working" until you've verified the complete pipeline:
+
+1. **Uninstall first**: `bash ~/.hermes/skills/sentinel-monitor/uninstall.sh` — remove cron job + old config
+2. **Run setup**: Create fresh config via `setup.py` or manual config write
+3. **Test script directly**: `python3 ~/.hermes/skills/sentinel-monitor/scripts/sentinel.py` — verify it runs, tests providers, writes sentinel-output.json
+4. **Verify output**: `cat ~/.hermes/sentinel-output.json` — confirm available/failed/assignments/cron_updates are populated
+5. **Verify source config unchanged**: Confirm sentinel-config.json still has all candidates/endpoints (not wiped)
+6. **Create and run cron job**: `cronjob(action='create')` then `cronjob(action='run')` — wait for output in cron log directory or delivery
+
+Only after ALL steps pass can you report success. Direct script success is necessary but not sufficient.
+
 ## How Provider Testing Works
 
 Always test via **actual chat completion requests**, not `/health` endpoints.
@@ -78,6 +91,7 @@ Providers with `key_source: "gateway"` cannot be tested via direct curl. Use sen
 
 See `references/pitfalls.md` for detailed analysis of provider testing issues.
 See `references/cascading-config-bug.md` for the source-vs-output config wipe pattern and fix.
+See `references/crispcraft-job-registry.md` for the complete CrispCraft.co cron job registry.
 
 ## Cron Job Subagent Failures
 
@@ -87,3 +101,35 @@ Cron jobs frequently report `RuntimeError: 400 Bad Request` on the cron output l
 ```bash
 bash ~/.hermes/skills/sentinel-monitor/uninstall.sh
 ```
+
+## Cron Job Creation — Prompt Pattern
+
+The sentinel cron job's prompt MUST be detailed enough for the subagent to parse sentinel.py output and act on it. Minimal or vague prompts result in empty "(empty)" responses in the cron delivery log.
+
+**Working prompt template**:
+```
+You are Sentinel — CrispCraft.co LLM Provider Health Monitor.
+
+## Steps
+1. Run this command and capture ALL output:
+   python3 ~/.hermes/skills/sentinel-monitor/scripts/sentinel.py
+2. Read the file `~/.hermes/sentinel-output.json` — it has health data, assignments, and cron_updates.
+3. If the JSON has a cron_updates array with items, for each one call:
+   cronjob(action='update', job_id='{job_id}', model={'provider': '{provider}', 'model': '{model}'})
+4. Report results to the user:
+   - Which providers are up/down
+   - Which jobs got assigned to which models
+   - Any cron updates that were applied
+   - Latency numbers from the health check
+```
+
+**Key requirements**: Numbered steps, explicit command syntax, explicit report structure. Without this, subagents deliver "(empty)" even though the script ran correctly.
+
+## setup.py Limitations
+
+`setup.py` auto-discovery of cron jobs via `hermes cron list` often fails inside the piped input flow with "No jobs found via CLI". This is a known limitation — the hermes CLI may not be accessible during interactive setup.
+
+**Critical: Always populate the complete job registry.** After setup.py creates config, you MUST add ALL cron jobs to the `job_registry`. Never leave it empty or partial — if the workspace has known cron jobs (e.g., CrispCraft agents: Space, Marcus, Luna, Viktor, Sofia, Olivia, Jax, Kenji, plus system jobs), add them ALL before running sentinel.py. Partial job registries mean sentinel won't monitor unlisted jobs during outages.
+
+**How to discover**: Run `cronjob(action='list')` first to get all job IDs + names, then write the complete registry into sentinel-config.json.
+
