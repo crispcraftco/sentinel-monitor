@@ -1,0 +1,18 @@
+{
+  "_comment": "Sentinel Provider Monitor — Example configuration. Copy to ~/.hermes/sentinel-config.json and edit with your real providers.",
+  "candidates": [],
+  "provider_endpoints": {},
+  "job_registry": {},
+  "quality_requirements": {
+    "research": "tier-1",
+    "builder": "tier-1",
+    "content": "tier-1",
+    "marketing": "tier-2",
+    "design": "tier-2",
+    "finance": "tier-2",
+    "system": "tier-3",
+    "growth": "tier-3"
+  },
+  "cost_priority": ["free", "paid-subscription", "paid-per-use"],
+  "check_interval": "1 hour"
+}
