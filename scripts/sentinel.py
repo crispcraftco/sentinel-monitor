@@ -175,10 +175,60 @@ def step1_test(candidates, endpoints, hc, cfg_path):
         url    = ep.get("url","")
         ks     = ep.get("key_source","gateway")
         if ks == "gateway":
-            print(f"  ⚙ {p}/{m} -- gateway-managed (assumed operational)")
-            ok.append({"provider":p,"model":m,"cost":cost,"quality":qual,
-                       "job_types":jtypes,"latency_ms":0,"status":"gateway",
-                       "tested_at":datetime.now(timezone.utc).isoformat()})
+            # Gateway-managed providers (e.g., OAuth-authenticated upstream like Nous).
+            # Sentinel has no API key, but performs two independent checks:
+            # Check 1 — /v1/models: verify the model is still listed (public endpoint)
+            # Check 2 — /chat/completions liveness: confirm the server responds
+            base_url = url
+            if "/v1/" in url:
+                base_url = url[:url.index("/v1/") + 4]  # e.g. .../v1/
+            models_url = base_url.rstrip("/") + "/models"
+
+            # Check 1: Is the model still listed in /v1/models?
+            model_listed = False
+            try:
+                r2 = subprocess.run(
+                    ["curl","-s","-m","20", models_url],
+                    capture_output=True, text=True, timeout=25
+                )
+                models_data = json.loads(r2.stdout).get("data", [])
+                listed_ids = {m.get("id","") for m in models_data}
+                model_listed = m in listed_ids
+            except Exception:
+                model_listed = False
+
+            # Check 2: Is the chat endpoint alive?
+            if url:
+                cmd = ["curl","-s","-o","/dev/null","-w","%{http_code} %{time_total}",
+                       "-m","30", url,
+                       "-H","Content-Type: application/json",
+                       "-d", json.dumps({"model":m,"messages":[{"role":"user","content":"ping"}],"max_tokens":2})]
+                t0 = time.monotonic()
+                try:
+                    r = subprocess.run(cmd, capture_output=True, text=True, timeout=35)
+                    ms = int((time.monotonic()-t0)*1000)
+                    parts = r.stdout.strip().split()
+                    code = int(parts[0]) if parts else 0
+                    if code in (200, 400, 401, 403, 404, 405, 422, 501):
+                        detail = "model_listed" if model_listed else "model_NOT_listed"
+                        ok.append({"provider":p,"model":m,"cost":cost,"quality":qual,
+                                   "job_types":jtypes,"latency_ms":ms,"status":"gateway_ok" if model_listed else "gateway_warn",
+                                   "tested_via":"endpoint_liveness+models_check",
+                                   "model_listed":model_listed,"tested_at":datetime.now(timezone.utc).isoformat()})
+                        listed_tag = "[listed]" if model_listed else "[removed?]"
+                        print(f"  ✅ {p}/{m} -- {qual} via gateway check ({ms}ms HTTP {code} {listed_tag})")
+                    else:
+                        desc = {0:"timeout",502:"bad_gateway",503:"unavailable"}.get(code,f"http_{code}")
+                        fail.append({"provider":p,"model":m,"status":desc,"http_code":code})
+                        print(f"  ❌ {p}/{m} -- {desc} (HTTP {code})")
+                except Exception:
+                    fail.append({"provider":p,"model":m,"status":"timeout","http_code":0})
+                    print(f"  ❌ {p}/{m} -- timeout (endpoint unreachable)")
+            else:
+                print(f"  ⚙ {p}/{m} -- gateway-managed (no URL, assumed operational)")
+                ok.append({"provider":p,"model":m,"cost":cost,"quality":qual,
+                           "job_types":jtypes,"latency_ms":0,"status":"gateway",
+                           "tested_at":datetime.now(timezone.utc).isoformat()})
             continue
         if not url:
             print(f"  ⚙ {p}/{m} -- no-url (skipped)")
