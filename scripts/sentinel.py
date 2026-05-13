@@ -261,7 +261,7 @@ def assign_best(ok_list, job_registry, qreqs):
     for jid, ji in job_registry.items():
         name, jtyp = ji.get("name",jid), ji.get("type","")
         req = qreqs.get(jtyp, "tier-3")
-        pool = [c for c in ok_list if c.get("status")=="ok"
+        pool = [c for c in ok_list if c.get("status") in ("ok", "gateway_ok")
                 and ("all" in c.get("job_types",["all"]) or jtyp in c.get("job_types",[]))]
         def rank(c):
             q_ok = TIERS.get(c.get("quality","tier-3"),99) <= TIERS.get(req,99)
