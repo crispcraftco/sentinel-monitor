@@ -81,13 +81,28 @@ The script MUST never write results back to the source config. If `sentinel-conf
 
 **Pattern**: SOURCE (read-only) → process → OUTPUT (overwritten each run). Always separate files.
 
-### Sentinel Cron Job Provider Assignment
+### Sentinel Cron Job `deliver` Target
 
-The sentinel cron job itself runs on a model. If that provider goes down, the sentinel never fires and cannot update other jobs. Always assign sentinel to a reliable provider (free tier or local gateway).
+Cron jobs with `deliver: "origin"` may fail with `platform 'discord' not configured/enabled` — this happens when a job was created from a conversation in another origin (e.g. web TUI) and `"origin"` doesn't resolve in Discord. Fix by updating the delivery target explicitly:
+```
+cronjob(action='update', job_id='<id>', deliver='discord:<channel_id>')
+```
+The current Discord server/channel ID is `1497816660185190531`.
 
-### Gateway-Skipped Candidates
+### Gateway-Managed Providers (FIXED — were silently dropped from reports)
 
-Providers with `key_source: "gateway"` cannot be tested via direct curl. Use sentinel's own execution as a heartbeat — if it ran, at least one gateway provider is alive.
+Candidates with `"key_source": "gateway"` (e.g. `nous/qwen3.6-plus` routed through `sml-gateway`) **used to be silently skipped** by `sentinel.py` line 177: `if ks=="gateway" or not url: continue` — which dropped them from the health report entirely, so the user would never see them.
+
+**Fix applied in sentinel.py**: Gateway providers are now included in the `ok` list with `status: "gateway"` and `latency_ms: 0`, so they appear in the report as "gateway-managed (assumed operational)" instead of vanishing. The patched logic:
+```python
+if ks == "gateway":
+    print(f"  ⚙ {p}/{m} -- gateway-managed (assumed operational)")
+    ok.append({"provider":p,"model":m,"cost":cost,"quality":qual,
+               "job_types":jtypes,"latency_ms":0,"status":"gateway",
+               "tested_at":datetime.now(timezone.utc).isoformat()})
+    continue
+```
+When auditing a sentinel installation, check `sentinel-config.json` provider_endpoints — any provider with `key_source: "gateway"` must be handled by the script (included in report), not skipped.
 
 See `references/pitfalls.md` for detailed analysis of provider testing issues.
 See `references/cascading-config-bug.md` for the source-vs-output config wipe pattern and fix.

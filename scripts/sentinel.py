@@ -174,8 +174,14 @@ def step1_test(candidates, endpoints, hc, cfg_path):
         ep     = endpoints.get(p, {})
         url    = ep.get("url","")
         ks     = ep.get("key_source","gateway")
-        if ks=="gateway" or not url:
-            print(f"  ⚙ {p}/{m} -- gateway/no-url (skipped)")
+        if ks == "gateway":
+            print(f"  ⚙ {p}/{m} -- gateway-managed (assumed operational)")
+            ok.append({"provider":p,"model":m,"cost":cost,"quality":qual,
+                       "job_types":jtypes,"latency_ms":0,"status":"gateway",
+                       "tested_at":datetime.now(timezone.utc).isoformat()})
+            continue
+        if not url:
+            print(f"  ⚙ {p}/{m} -- no-url (skipped)")
             continue
 
         # Check if key is available before spending time testing

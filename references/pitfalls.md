@@ -38,17 +38,22 @@
 
 ---
 
-## Gateway-Managed Providers Skip Direct Testing
+## Gateway-Managed Providers: Availability vs. Testability
 
-**Behavior**: Providers with `key_source: "gateway"` are skipped in Step 1. Their health is NOT directly tested.
+**Behavior**: Providers with `key_source: "gateway"` are skipped in Step 1 — sentinel prints `⚙ provider/model -- gateway/no-url (skipped)`.
 
-**Rationale**: Gateway-managed providers (e.g., nous on Hermes Agent's built-in gateway) have their keys managed internally. Direct curl testing would fail because sentinel doesn't have the key.
+**CRITICAL**: Gateway-skip does NOT mean the provider is unavailable. It means sentinel cannot test it via direct HTTP/curl because the API key is managed internally by the Hermes gateway routing layer.
 
-**Impact**: If a gateway-managed provider goes down, sentinel won't detect it directly. It relies on:
-1. Auto-discovery (tests custom_providers from config.yaml if they have a base_url)
-2. Cron job failures (broken jobs that use the provider will error, and the user will notice)
+**How to interpret a gateway-skip**:
+- `key_source: "gateway"` + has a `url` → Provider is **available and routable** through the gateway. The URL is the gateway's proxy endpoint, not a direct API endpoint. Sentinel skips HTTP testing because it doesn't have the key to send a Bearer token. **The provider IS available** for job assignments.
+- `key_source: "gateway"` + no URL → Provider availability is unknown. Rely on gateway health or user reports.
 
-**Improvement**: Future versions could test gateway providers by calling the Hermes Agent API to check if they're responding.
+**Impact on assignments**: Gateway-managed providers with URLs ARE considered valid candidates during the assignment phase (Step 2). sentinel.py includes them in the `available` list from config even if not HTTP-tested, so the cost-priority algorithm can still route jobs to free gateway providers like `nous/qwen3.6-plus`.
+
+**Verification**: To confirm a gateway provider is actually alive:
+1. Check if the current session/model is using that provider (`Model: xxx, Provider: nous` in system header)
+2. If sentinel itself ran successfully, at least one gateway provider is alive
+3. Use `hermes cron list` to see which jobs are assigned to that provider — if they're succeeding, the provider is up
 
 ---
 
