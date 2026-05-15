@@ -54,10 +54,18 @@ Only after ALL steps pass can you report success. Direct script success is neces
 
 ## How Provider Testing Works
 
-Always test via **actual chat completion requests**, not `/health` endpoints.
+Always test via **actual requests** with real chat payloads. Not `/health` endpoints.
+
+### Authenticated providers (key available)
 - `max_tokens=2` + `content="ping"` costs ~5 tokens
 - Tests: server alive + auth valid + account has balance + model accessible
 - HTTP 200 = ok, 429 = rate limited, 402 = no funds, 401/403 = auth failed, 5xx = server error
+
+### Gateway/ OAuth providers (no key available — "key_source": "gateway")
+- Sentinel runs `hermes chat -q 'ping' -m <model> --provider <provider>` which handles OAuth auth
+- Tests the **full pipeline**: OAuth tokens → inference endpoint → model actually responds
+- Exit code 0 + non-empty output = `"cli_ok"`, anything else = `"cli_fail"`
+- **Latency**: ~10-15s (includes agent initialization) vs ~1s curl liveness check, but gives real inference confidence
 
 ## Key Architecture
 
@@ -75,6 +83,36 @@ cronjob(action=update)        ← auto-switch jobs to working models
 
 ## Critical Pitfalls
 
+### Cron Job Provider Mismatch
+
+If a cron job (e.g., an agent like **Sofia — Product Builder**) repeatedly fails with `RuntimeError: 400 Bad Request`, the failure is often due to a mismatch between the job's configured model/provider and the currently healthy providers detected by Sentinel. Steps to resolve:
+1. Run `hermes cron list` to identify the job ID.
+2. Verify the provider health output via `~/.hermes/sentinel-output.json` (or run the sentinel script directly).
+3. If the configured provider is down or mismatched, update the job:
+   ```bash
+   hermes cron update --job-id <job_id> --model <model_name> --provider <provider_name>
+   ```
+   or using the API:
+   ```json
+   {"action":"update","job_id":"<job_id>","model":"<model>","provider":"<provider>"}
+   ```
+4. Re‑run the job (`hermes cron run <job_id>`) and verify the status changes to ✅.
+5. Ensure the delivery target is correctly set (e.g., `discord:<channel_id>`), otherwise Discord delivery will fail.
+
+This pattern was applied to fix **Sofia — Product Builder Agent** after it hit a 400 error due to an outdated provider configuration.
+
+### Cron Job base_url / Provider Mismatch (404 model_not_found)
+
+The `cronjob(action='update')` API changes `model` and `provider` but does **NOT** auto-update `base_url`. If the job was previously running on sml-gateway (`localhost:3334`) and you switch the provider to `openrouter`, the job still sends requests to `localhost:3334` — which doesn't have that OpenRouter model → **404 `model_not_found`**.
+
+**Rule**: When switching a cron job to a different provider, verify `base_url` matches the new provider. For sml-gateway models (like `sml/tools`, `sml/auto`), `base_url` should be `http://localhost:3334/v1`. For OpenRouter models, it should be `https://openrouter.ai/api/v1`. After any provider change, always check the returned job object's `base_url` field.
+
+### Cascading Config Wipe (CRITICAL — killed entire system in 1 run)
+
+The script MUST never write results back to the source config. If `sentinel-config.json` is overwritten with output results, the next run finds zero candidates → tests nothing → writes zero data. Total system collapse in a single cycle.
+
+... (rest of original content unchanged) ...
+
 ### Cascading Config Wipe (CRITICAL — killed entire system in 1 run)
 
 The script MUST never write results back to the source config. If `sentinel-config.json` is overwritten with output results, the next run finds zero candidates → tests nothing → writes zero data. Total system collapse in a single cycle.
@@ -89,24 +127,13 @@ cronjob(action='update', job_id='<id>', deliver='discord:<channel_id>')
 ```
 The current Discord server/channel ID is `1497816660185190531`.
 
-### Gateway-Managed Providers (FIXED — were silently dropped from reports)
+### Gateway-Managed & OAuth-Authenticated Providers (CLI Testing)
 
-Candidates with `"key_source": "gateway"` (e.g. `nous/qwen3.6-plus` routed through `sml-gateway`) **used to be silently skipped** by `sentinel.py` line 177: `if ks=="gateway" or not url: continue` — which dropped them from the health report entirely, so the user would never see them.
+Candidates with `"key_source": "gateway"` (providers using OAuth or external auth like Nous) are tested via `hermes chat -q 'ping' -m <model> --provider <provider>`. This goes through the full Hermes auth pipeline — OAuth token refresh, model routing, inference.
 
-**Fix applied in sentinel.py**: Gateway providers are now included in the `ok` list with `status: "gateway"` and `latency_ms: 0`, so they appear in the report as "gateway-managed (assumed operational)" instead of vanishing. The patched logic:
-```python
-if ks == "gateway":
-    print(f"  ⚙ {p}/{m} -- gateway-managed (assumed operational)")
-    ok.append({"provider":p,"model":m,"cost":cost,"quality":qual,
-               "job_types":jtypes,"latency_ms":0,"status":"gateway",
-               "tested_at":datetime.now(timezone.utc).isoformat()})
-    continue
-```
-When auditing a sentinel installation, check `sentinel-config.json` provider_endpoints — any provider with `key_source: "gateway"` must be handled by the script (included in report), not skipped.
+Status code `"cli_ok"` means the model actually responded. `"cli_fail"` means it didn't.
 
-See `references/pitfalls.md` for detailed analysis of provider testing issues.
-See `references/cascading-config-bug.md` for the source-vs-output config wipe pattern and fix.
-See `references/crispcraft-job-registry.md` for the complete CrispCraft.co cron job registry.
+**assign_best filter**: Must include `cli_ok` alongside `ok` and `gateway_ok`. Currently the filter is `status in ("ok", "gateway_ok", "cli_ok")`.
 
 ## Cron Job Subagent Failures
 
