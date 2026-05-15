@@ -306,9 +306,20 @@ def main():
     # Assign
     asgn = assign_best(ok, cfg.get("job_registry",{}), cfg.get("quality_requirements",{}))
 
-    # Build output dict
-    updates = [{"job_id":jid,"provider":a["provider"],"model":a["model"]}
-               for jid,a in asgn.items() if a]
+    # Build output dict — include base_url derived from provider endpoint
+    updates = []
+    for jid, a in asgn.items():
+        if not a:
+            continue
+        provider = a["provider"]
+        ep_url = cfg["provider_endpoints"].get(provider, {}).get("url", "")
+        base_url = ep_url.replace("/chat/completions", "") if ep_url else ""
+        updates.append({
+            "job_id": jid,
+            "provider": provider,
+            "model": a["model"],
+            "base_url": base_url,
+        })
     out_dict = {
         "last_tested_at": now,
         "available": [{"provider":x["provider"],"model":x["model"],"cost":x.get("cost"),

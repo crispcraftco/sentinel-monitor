@@ -111,12 +111,6 @@ The `cronjob(action='update')` API changes `model` and `provider` but does **NOT
 
 The script MUST never write results back to the source config. If `sentinel-config.json` is overwritten with output results, the next run finds zero candidates → tests nothing → writes zero data. Total system collapse in a single cycle.
 
-... (rest of original content unchanged) ...
-
-### Cascading Config Wipe (CRITICAL — killed entire system in 1 run)
-
-The script MUST never write results back to the source config. If `sentinel-config.json` is overwritten with output results, the next run finds zero candidates → tests nothing → writes zero data. Total system collapse in a single cycle.
-
 **Pattern**: SOURCE (read-only) → process → OUTPUT (overwritten each run). Always separate files.
 
 ### Sentinel Cron Job `deliver` Target
@@ -154,18 +148,23 @@ You are Sentinel — CrispCraft.co LLM Provider Health Monitor.
 
 ## Steps
 1. Run this command and capture ALL output:
-   python3 ~/.hermes/skills/sentinel-monitor/scripts/sentinel.py
+   `python3 ~/.hermes/skills/sentinel-monitor/scripts/sentinel.py`
+   Print the entire output in your response.
+
 2. Read the file `~/.hermes/sentinel-output.json` — it has health data, assignments, and cron_updates.
-3. If the JSON has a cron_updates array with items, for each one call:
-   cronjob(action='update', job_id='{job_id}', model={'provider': '{provider}', 'model': '{model}'})
+
+3. If the JSON has a cron_updates array with items, for each item call:
+   cronjob(action='update', job_id='{job_id}', model={'provider': '{provider}', 'model': '{model}'}, base_url='{base_url}')
+   The `base_url` field is required — without it the cron subagent uses the old base_url and will 404. The sentinel script computes the correct base_url from the provider's endpoint.
+
 4. Report results to the user:
    - Which providers are up/down
-   - Which jobs got assigned to which models
+   - Which jobs got assigned to which models (include base_url)
    - Any cron updates that were applied
    - Latency numbers from the health check
 ```
 
-**Key requirements**: Numbered steps, explicit command syntax, explicit report structure. Without this, subagents deliver "(empty)" even though the script ran correctly.
+**Key requirements**: Numbered steps, explicit command syntax, explicit base_url in cronjob update calls, explicit report structure. Without this, subagents deliver "(empty)" even though the script ran correctly.
 
 ## setup.py Limitations
 
